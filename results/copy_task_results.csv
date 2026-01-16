@@ -1,0 +1,13 @@
+attention,copy_len,accuracy,final_loss
+Standard,5,0.0,3.7003125
+Flash,5,0.0,3.71625
+Linear,5,0.0,3.7171875
+GatedDeltaNet,5,0.0,3.61375
+Standard,10,0.0,4.75625
+Flash,10,0.0,4.75125
+Linear,10,0.0,4.765
+GatedDeltaNet,10,0.0,4.6925
+Standard,20,0.0,5.43875
+Flash,20,0.01,5.4625
+Linear,20,0.0,5.478125
+GatedDeltaNet,20,0.0,5.44375

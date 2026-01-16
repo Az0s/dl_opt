@@ -1,0 +1,22 @@
+{
+  "Softmax": {
+    "hidden_size": 256,
+    "num_layers": 4,
+    "num_heads": 4
+  },
+  "Flash": {
+    "hidden_size": 256,
+    "num_layers": 4,
+    "num_heads": 4
+  },
+  "Linear": {
+    "hidden_size": 256,
+    "num_layers": 4,
+    "num_heads": 4
+  },
+  "GatedDeltaNet": {
+    "hidden_size": 128,
+    "num_layers": 4,
+    "num_heads": 4
+  }
+}
