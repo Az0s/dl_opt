@@ -856,7 +856,7 @@ class Trainer:
         
         plt.tight_layout()
         plt.savefig(save_dir + '/profiler_complexity.png', dpi=150, bbox_inches='tight')
-        plt.savefig(save_dir + '/profiler_complexity. pdf', bbox_inches='tight')
+        plt.savefig(save_dir + '/profiler_complexity.pdf', bbox_inches='tight')
         plt.close()
         print("Saved: profiler_complexity.png/pdf")
     
