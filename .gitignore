@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Environments
+.venv/
+venv/
+env/
+
+# OS/editor
+.DS_Store
+.vscode/
+
+# Logs/profiling
+*.log
+profiler_logs/
+profiler_results/
+
+# Training outputs/artifacts
+checkpoints/
+results/
+figures/
+*.ckpt
+*.pt
+*.pth
+
+# Data artifacts
+*.parquet
