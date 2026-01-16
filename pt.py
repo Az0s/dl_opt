@@ -518,6 +518,16 @@ class Trainer:
         print("阶段1: 预训练 (WikiText-2 本地数据)")
         print("="*80)
         
+        checkpoint_dir = './checkpoints'
+        checkpoint_paths = {
+            attn_name: os.path.join(checkpoint_dir, attn_name + '.pt')
+            for attn_name in self.ATTN_CLASSES.keys()
+        }
+        found_checkpoints = [name for name, path in checkpoint_paths.items() if os.path.isfile(path)]
+        if found_checkpoints:
+            print("检测到已有 checkpoints，将跳过对应模型的预训练:")
+            print("  " + ", ".join(found_checkpoints))
+
         train_path = os.path.join(self.data_dir, 'train-00000-of-00001.parquet')
         val_path = os.path.join(self.data_dir, 'validation-00000-of-00001.parquet')
         
@@ -539,10 +549,15 @@ class Trainer:
         
         for attn_name, attn_class in self.ATTN_CLASSES.items():
             config = self.get_model_config(attn_name)
+            checkpoint_path = checkpoint_paths.get(attn_name)
             print("\n" + "-"*60)
             print("训练:  {} (h={}, l={}, n={})".format(
                 attn_name, config['hidden_size'], config['num_layers'], config['num_heads']))
             print("-"*60)
+
+            if checkpoint_path and os.path.isfile(checkpoint_path):
+                print("跳过预训练: 发现 checkpoint -> " + checkpoint_path)
+                continue
             
             try:
                 self.clear_cache()
@@ -597,8 +612,8 @@ class Trainer:
                 
                 self.models[attn_name] = model
                 self.train_history[attn_name] = history
-                os.makedirs('./checkpoints', exist_ok=True)
-                torch.save(model. state_dict(), './checkpoints/' + attn_name + '.pt')
+                os.makedirs(checkpoint_dir, exist_ok=True)
+                torch.save(model.state_dict(), checkpoint_path)
                 print("模型已保存")
                 
             except Exception as e:
@@ -774,7 +789,7 @@ class Trainer:
         axes[2].grid(True, alpha=0.3)
         
         plt.tight_layout()
-        plt.savefig(save_dir + '/profiler_time_memory. png', dpi=150, bbox_inches='tight')
+        plt.savefig(save_dir + '/profiler_time_memory.png', dpi=150, bbox_inches='tight')
         plt.savefig(save_dir + '/profiler_time_memory.pdf', bbox_inches='tight')
         plt.close()
         print("Saved:  profiler_time_memory.png/pdf")
@@ -1295,7 +1310,7 @@ def plot_results(results, history, save_dir='./figures'):
             axes[i].set_xlabel('Sequence Length'); axes[i].set_ylabel(yl); axes[i].set_title(ti)
             axes[i].legend(); axes[i].grid(True, alpha=0.3)
         plt.tight_layout()
-        plt.savefig(save_dir + '/efficiency. png', dpi=150, bbox_inches='tight')
+        plt.savefig(save_dir + '/efficiency.png', dpi=150, bbox_inches='tight')
         plt.savefig(save_dir + '/efficiency.pdf', bbox_inches='tight')
         plt.close()
         print("Saved: efficiency.png/pdf")
@@ -1313,7 +1328,7 @@ def plot_results(results, history, save_dir='./figures'):
         ax.set_title('Memory Scaling with Sequence Length')
         ax.legend(); ax.grid(True, alpha=0.3)
         plt.tight_layout()
-        plt.savefig(save_dir + '/memory. png', dpi=150, bbox_inches='tight')
+        plt.savefig(save_dir + '/memory.png', dpi=150, bbox_inches='tight')
         plt.savefig(save_dir + '/memory.pdf', bbox_inches='tight')
         plt.close()
         print("Saved: memory.png/pdf")
@@ -1385,7 +1400,7 @@ def plot_results(results, history, save_dir='./figures'):
         axes[1].set_xlabel('Parameters (Million)'); axes[1].set_ylabel('Throughput (tokens/s)')
         axes[1].set_title('Throughput vs Model Size'); axes[1].legend(); axes[1].grid(True, alpha=0.3)
         plt.tight_layout()
-        plt.savefig(save_dir + '/scaling. png', dpi=150, bbox_inches='tight')
+        plt.savefig(save_dir + '/scaling.png', dpi=150, bbox_inches='tight')
         plt.savefig(save_dir + '/scaling.pdf', bbox_inches='tight')
         plt.close()
         print("Saved: scaling.png/pdf")
@@ -1473,7 +1488,7 @@ def plot_results(results, history, save_dir='./figures'):
             plt.savefig(save_dir + '/radar_comparison.png', dpi=150, bbox_inches='tight')
             plt.savefig(save_dir + '/radar_comparison.pdf', bbox_inches='tight')
             plt.close()
-            print("Saved: radar_comparison. png/pdf")
+            print("Saved: radar_comparison.png/pdf")
         except Exception as e:
             print("Radar chart error:  " + str(e))
     
@@ -1505,10 +1520,7 @@ def main():
     try:
         from fla import layers as fla_layers
         kimi_candidates = [
-            "KimiLinearAttention",
-            "KimiLinearAttn",
-            "KimiAttention",
-            "KimiLinear",
+            "KimiDeltaAttention",
         ]
         if any(hasattr(fla_layers, name) for name in kimi_candidates):
             print("FLA Kimi Linear: OK")
