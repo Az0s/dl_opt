@@ -16,6 +16,7 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 import os
 import json
+import inspect
 
 # =====================================================
 # Part 1: 注意力层
@@ -167,6 +168,78 @@ class FLAGatedDeltaNet(nn.Module):
         return self.o_proj(out. contiguous().view(B, L, self.hidden_size))
 
 
+class FLAKimiLinearAttention(nn.Module):
+    """Kimi Linear Attention - 使用 FLA 库实现"""
+    def __init__(self, hidden_size, num_heads, dropout=0.0):
+        super().__init__()
+        self.hidden_size = hidden_size
+        self.num_heads = num_heads
+        self.head_dim = hidden_size // num_heads
+        self.use_fla = False
+        self.fla_class_name = None
+        try:
+            from fla import layers as fla_layers
+            self.attn = self._build_fla_attn(fla_layers, dropout)
+            self.use_fla = True
+        except Exception:
+            self._init_fallback()
+    
+    def _build_fla_attn(self, fla_layers, dropout):
+        candidates = [
+            "KimiLinearAttention",
+            "KimiLinearAttn",
+            "KimiAttention",
+            "KimiLinear",
+        ]
+        for name in candidates:
+            if not hasattr(fla_layers, name):
+                continue
+            attn_cls = getattr(fla_layers, name)
+            sig = inspect.signature(attn_cls.__init__)
+            params = sig.parameters
+            kwargs = {
+                "hidden_size": self.hidden_size,
+                "num_heads": self.num_heads,
+            }
+            if "mode" in params:
+                kwargs["mode"] = "fused_chunk"
+            if "expand_k" in params:
+                kwargs["expand_k"] = 1.0
+            if "expand_v" in params:
+                kwargs["expand_v"] = 1.0
+            if "dropout" in params:
+                kwargs["dropout"] = dropout
+            if "dropout_p" in params:
+                kwargs["dropout_p"] = dropout
+            self.fla_class_name = name
+            return attn_cls(**kwargs)
+        raise ImportError("Kimi linear attention class not found in fla.layers")
+    
+    def _init_fallback(self):
+        self.q_proj = nn.Linear(self.hidden_size, self.hidden_size, bias=False)
+        self.k_proj = nn.Linear(self.hidden_size, self.hidden_size, bias=False)
+        self.v_proj = nn.Linear(self.hidden_size, self.hidden_size, bias=False)
+        self.o_proj = nn.Linear(self.hidden_size, self.hidden_size, bias=False)
+    
+    def forward(self, x):
+        if self.use_fla:
+            result = self.attn(x)
+            return result[0] if isinstance(result, tuple) else result
+        
+        B, L, _ = x.shape
+        q = self.q_proj(x).view(B, L, self.num_heads, self.head_dim)
+        k = self.k_proj(x).view(B, L, self.num_heads, self.head_dim)
+        v = self.v_proj(x).view(B, L, self.num_heads, self.head_dim)
+        q, k = F.elu(q) + 1, F.elu(k) + 1
+        
+        kv = torch.einsum('blhd,blhe->blhde', k, v)
+        kv_cumsum = torch.cumsum(kv, dim=1)
+        k_cumsum = torch.cumsum(k, dim=1)
+        out = torch.einsum('blhd,blhde->blhe', q, kv_cumsum)
+        out = out / torch.einsum('blhd,blhd->blh', q, k_cumsum).unsqueeze(-1).clamp(min=1e-6)
+        return self.o_proj(out.contiguous().view(B, L, self.hidden_size))
+
+
 # =====================================================
 # Part 2: Transformer 模型 (支持不同注意力层配置)
 # =====================================================
@@ -311,6 +384,7 @@ class Trainer:
         'Flash': FlashAttention,
         'Linear': FLALinearAttention,
         'GatedDeltaNet': FLAGatedDeltaNet,
+        'KimiLinear': FLAKimiLinearAttention,
     }
     
     # 每个模型的独立配置，调整使参数量接近
@@ -320,6 +394,7 @@ class Trainer:
         'Flash': {'hidden_size': 256, 'num_layers': 4, 'num_heads': 4},
         'Linear': {'hidden_size': 256, 'num_layers': 4, 'num_heads': 4},
         'GatedDeltaNet': {'hidden_size': 128, 'num_layers': 4, 'num_heads':  4},  # 减小 hidden_size
+        'KimiLinear': {'hidden_size': 256, 'num_layers': 4, 'num_heads': 4},
     }
     
     def __init__(self, data_dir, seq_len=256, batch_size=16, lr=5e-4, device='cuda'):
@@ -667,8 +742,8 @@ class Trainer:
     def plot_profiler_results(self, df, save_dir='./figures'):
         """绘制 Profiler 结果图表"""
         os.makedirs(save_dir, exist_ok=True)
-        colors = {'Softmax': '#1f77b4', 'Flash': '#ff7f0e', 'Linear': '#2ca02c', 'GatedDeltaNet': '#d62728'}
-        markers = {'Softmax': 'o', 'Flash': 's', 'Linear': '^', 'GatedDeltaNet': 'D'}
+        colors = {'Softmax': '#1f77b4', 'Flash': '#ff7f0e', 'Linear': '#2ca02c', 'GatedDeltaNet': '#d62728', 'KimiLinear': '#9467bd'}
+        markers = {'Softmax': 'o', 'Flash': 's', 'Linear': '^', 'GatedDeltaNet': 'D', 'KimiLinear': 'X'}
         
         # 图1:  CUDA/CPU 时间 vs 序列长度
         fig, axes = plt.subplots(1, 3, figsize=(15, 4))
@@ -1102,6 +1177,12 @@ class Trainer:
                 {'h': 192, 'l': 6, 'n': 4, 'name': '~15M'},
                 {'h': 256, 'l': 8, 'n': 4, 'name': '~30M'},
             ],
+            'KimiLinear': [
+                {'h': 128, 'l': 2, 'n': 4, 'name': '~1M'},
+                {'h': 256, 'l': 4, 'n': 8, 'name': '~5M'},
+                {'h': 384, 'l': 6, 'n': 8, 'name': '~15M'},
+                {'h': 512, 'l': 8, 'n': 8, 'name': '~30M'},
+            ],
         }
         
         results = []
@@ -1178,8 +1259,8 @@ class Trainer:
 
 def plot_results(results, history, save_dir='./figures'):
     os.makedirs(save_dir, exist_ok=True)
-    colors = {'Softmax': '#1f77b4', 'Flash': '#ff7f0e', 'Linear': '#2ca02c', 'GatedDeltaNet': '#d62728'}
-    markers = {'Softmax': 'o', 'Flash': 's', 'Linear': '^', 'GatedDeltaNet': 'D'}
+    colors = {'Softmax': '#1f77b4', 'Flash': '#ff7f0e', 'Linear': '#2ca02c', 'GatedDeltaNet': '#d62728', 'KimiLinear': '#9467bd'}
+    markers = {'Softmax': 'o', 'Flash': 's', 'Linear': '^', 'GatedDeltaNet': 'D', 'KimiLinear': 'X'}
     
     # 1. 训练曲线
     if history: 
@@ -1420,6 +1501,21 @@ def main():
         print("FLA:  OK")
     except:
         print("FLA: Not found (will use fallback)")
+    
+    try:
+        from fla import layers as fla_layers
+        kimi_candidates = [
+            "KimiLinearAttention",
+            "KimiLinearAttn",
+            "KimiAttention",
+            "KimiLinear",
+        ]
+        if any(hasattr(fla_layers, name) for name in kimi_candidates):
+            print("FLA Kimi Linear: OK")
+        else:
+            print("FLA Kimi Linear: Not found (will use fallback)")
+    except:
+        print("FLA Kimi Linear: Not found (will use fallback)")
     
     try:
         from flash_attn import flash_attn_func
